@@ -503,7 +503,7 @@
     });
   });
 
-  // Download count from GitHub API
+  
   fetch('https://api.github.com/repos/TheBagelOfMan/Daniel/releases')
     .then(r => r.json())
     .then(releases => {
@@ -515,8 +515,7 @@
       document.getElementById('download-count').textContent = '–';
     });
 
-  // View count from GoatCounter
-  fetch('https://YOURNAME.goatcounter.com/counter//.json')
+  fetch('https://thebagelofman.goatcounter.com/counter//.json')
     .then(r => r.json())
     .then(data => {
       document.getElementById('view-count').textContent = data.count.toLocaleString();
@@ -526,6 +525,6 @@
     });
 </script>
 <!-- GoatCounter tracking -->
-<script data-goatcounter="https://YOURNAME.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<script data-goatcounter="https://thebagelofman.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

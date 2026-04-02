@@ -192,6 +192,16 @@
     margin-top: 20px;
     padding-top: 20px;
     border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .dl-count {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .dl-count span {
+    color: var(--text);
   }
 
   /* ── Changelog ───────────────────────────────────────────────────── */
@@ -271,6 +281,7 @@
     .changelog-entry, .credit-row { grid-template-columns: 1fr; gap: 8px; }
     .stats-cta, .download-block { flex-direction: column; }
     .nav-links { display: none; }
+    .dl-btn-row { flex-direction: column; align-items: flex-start; }
   }
 </style>
 </head>
@@ -279,10 +290,23 @@
 
 <!-- Nav -->
 <nav>
-  <div class="nav-logo">Daniel</div>
+  <div style="display:flex; align-items:center; gap:14px;">
+    <div class="nav-logo">Daniel</div>
+    <a href="https://www.youtube.com/@TheBagelOfMan/featured" target="_blank" title="YouTube" style="display:flex; align-items:center; color:var(--muted); transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+      </svg>
+    </a>
+    <a href="https://github.com/TheBagelOfMan/Daniel" target="_blank" title="GitHub" style="display:flex; align-items:center; color:var(--muted); transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
+      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+      </svg>
+    </a>
+  </div>
   <ul class="nav-links">
     <li><a href="#how-it-works">How it works</a></li>
     <li><a href="#download">Download</a></li>
+    <li><a href="#changelog">Changelog</a></li>
     <li><a href="#faq">FAQ</a></li>
     <li><a href="#credits">Credits</a></li>
   </ul>
@@ -301,23 +325,26 @@
   </p>
   <div class="hero-actions">
     <a href="#download" class="btn btn-primary">↓ Download for Windows</a>
-    <a href="benchmark_report.html" class="btn">◈ Benchmark stats</a>
+    <div style="display:flex; flex-direction:column; gap:2px;">
+      <a href="benchmark_report.html" class="btn">◈ Benchmark stats</a>
+      <span style="font-size:11px; color:var(--muted); letter-spacing:0.06em;">Last run: <span id="bench-date">...</span></span>
+    </div>
   </div>
   <div class="stats-row">
     <div class="stat">
-      <span class="stat-val c-exact">52.4%</span>
+      <span class="stat-val c-exact" id="stat-exact">52.4%</span>
       <div class="stat-lbl">Within Exact Tier</div>
     </div>
     <div class="stat">
-      <span class="stat-val c-adjacent">89.6%</span>
+      <span class="stat-val c-adjacent" id="stat-adjacent">89.6%</span>
       <div class="stat-lbl">Within Adjacent Tiers</div>
     </div>
     <div class="stat">
-      <span class="stat-val c-within">98.7%</span>
+      <span class="stat-val c-within" id="stat-within">98.7%</span>
       <div class="stat-lbl">Within one full dan Level</div>
     </div>
     <div class="stat">
-      <span class="stat-val c-muted">145</span>
+      <span class="stat-val c-muted" id="stat-maps">145</span>
       <div class="stat-lbl">Beatmaps tested</div>
     </div>
   </div>
@@ -376,8 +403,8 @@
   <h2>Download</h2>
   <div class="download-block">
     <div class="dl-info">
-        <h3>Daniel.exe</h3>
-        <div class="dl-version">v1.1 - Latest</div>
+        <h3 id="dl-filename">Daniel.exe</h3>
+        <div class="dl-version" id="dl-version">Loading...</div>
         <p>Requirements:</p>
         <div class="req-tags">
           <span class="req-tag">Windows 10 / 11</span>
@@ -386,7 +413,8 @@
         </div>
       </div>
     <div class="dl-btn-row">
-      <a href="https://github.com/TheBagelOfMan/Daniel/releases/latest/download/Daniel-v1.1.exe" class="btn btn-primary">↓ Download .exe</a>
+      <a href="#" id="dl-btn" class="btn btn-primary">↓ Download .exe</a>
+      <span class="dl-count"><span id="download-count">...</span> downloads</span>
     </div>
   </div>
 
@@ -402,7 +430,7 @@
       <div class="step-num">02</div>
       <div class="step-body">
         <h3>Download Daniel</h3>
-        <p>Save <code>Daniel-v1.1.exe</code> anywhere on your system.</p>
+        <p>Save <code id="dl-filename-step">Daniel.exe</code> anywhere on your system.</p>
       </div>
     </div>
     <div class="step">
@@ -419,6 +447,14 @@
         <p>Boy do I love me some dans.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- Changelog -->
+<section id="changelog">
+  <h2>Changelog</h2>
+  <div id="changelog-entries">
+    <div style="color:var(--muted); font-size:13px;">Loading...</div>
   </div>
 </section>
 
@@ -471,6 +507,12 @@
 <section id="credits">
   <h2>Credits</h2>
   <div class="credit-row">
+    <div class="credit-role">Developer</div>
+    <div class="credit-info">
+      <h3>TheBagelOfMan</h3>
+    </div>
+  </div>
+  <div class="credit-row">
     <div class="credit-role"><a href="https://github.com/sunnyxxy/Star-Rating-Rebirth" target="_blank">Sunny Rework Algorithm Used</a></div>
     <div class="credit-info">
       <h3>[Crz]sunnyxxy, Natelytle, vernonlim, ChlorieHCl, Imperial Wolf</h3>
@@ -482,18 +524,23 @@
       <h3>MinaciousGrace</h3>
     </div>
   </div>
+  <div class="credit-row">
+    <div class="credit-role"><a href="https://github.com/tosuapp/tosu" target="_blank">tosu</a></div>
+    <div class="credit-info">
+      <h3>KotRik, Cherry</h3>
+    </div>
+  </div>
 </section>
 
 <!-- Footer -->
 <footer>
   <p>Daniel Daniel Daniel Daniel Daniel</p>
-  <p>v1.1 · <span id="download-count">...</span> downloads · <span id="view-count">...</span> views</p>
+  <p id="footer-version">...</p>
 </footer>
 
 </div>
 
 <script>
-  // FAQ toggle
   document.querySelectorAll('.faq-q').forEach(btn => {
     btn.addEventListener('click', () => {
       const item = btn.closest('.faq-item');
@@ -503,28 +550,93 @@
     });
   });
 
-  
+  fetch('benchmark_report.html')
+    .then(r => r.text())
+    .then(html => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const vals = doc.querySelectorAll('.stat-val');
+      if (vals.length >= 5) {
+        const exact    = vals[0].textContent.trim();
+        const adjacent = vals[1].textContent.trim();
+        const within   = vals[2].textContent.trim();
+        const maps     = vals[4].textContent.trim();
+        const exactN    = parseFloat(exact);
+        const adjacentN = parseFloat(adjacent);
+        const withinN   = parseFloat(within);
+        document.getElementById('stat-exact').textContent    = exact;
+        document.getElementById('stat-adjacent').textContent = (exactN + adjacentN).toFixed(1) + '%';
+        document.getElementById('stat-within').textContent   = (exactN + adjacentN + withinN).toFixed(1) + '%';
+        document.getElementById('stat-maps').textContent     = maps;
+
+        const meta = doc.querySelector('.meta');
+        if (meta) {
+          const match = meta.textContent.match(/(\d{4}-\d{2}-\d{2})/);
+          if (match) {
+            const d = new Date(match[1]);
+            document.getElementById('bench-date').textContent = d.toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+          }
+        }
+      }
+    })
+    .catch(() => {});
+
   fetch('https://api.github.com/repos/TheBagelOfMan/Daniel/releases')
     .then(r => r.json())
     .then(releases => {
       let total = 0;
       releases.forEach(r => r.assets.forEach(a => total += a.download_count));
       document.getElementById('download-count').textContent = total.toLocaleString();
+
+      const latest = releases[0];
+      if (!latest) return;
+
+      const version = latest.tag_name;
+      const exeAsset = latest.assets.find(a => a.name.endsWith('.exe'));
+      const downloadUrl = exeAsset
+        ? exeAsset.browser_download_url
+        : `https://github.com/TheBagelOfMan/Daniel/releases/latest`;
+      const filename = exeAsset ? exeAsset.name : 'Daniel.exe';
+
+      document.getElementById('dl-version').textContent = `${version} - Latest`;
+      document.getElementById('dl-filename').textContent = filename;
+      document.getElementById('dl-btn').href = downloadUrl;
+      document.getElementById('dl-filename-step').textContent = filename;
+      document.getElementById('footer-version').textContent = version;
+
+      const changelogEl = document.getElementById('changelog-entries');
+      if (releases.length === 0) {
+        changelogEl.innerHTML = '<div style="color:var(--muted); font-size:13px;">No releases found.</div>';
+      } else {
+        changelogEl.innerHTML = releases.map((r, i) => {
+          const date = new Date(r.published_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+          const bodyHtml = r.body
+            ? r.body
+                .split('\n')
+                .filter(l => l.trim())
+                .map(l => {
+                  const stripped = l.replace(/^[-*]\s*/, '').replace(/\*\*(.*?)\*\*/g, '$1').trim();
+                  return `<li>${stripped}</li>`;
+                })
+                .join('')
+            : '<li>No release notes.</li>';
+          return `
+            <div class="changelog-entry">
+              <div>
+                <div class="cl-ver">${r.tag_name}${i === 0 ? ' <span class="tag new">latest</span>' : ''}</div>
+                <div class="cl-date">${date}</div>
+              </div>
+              <div class="cl-body"><ul>${bodyHtml}</ul></div>
+            </div>`;
+        }).join('');
+      }
     })
     .catch(() => {
       document.getElementById('download-count').textContent = '–';
-    });
-
-  fetch('https://thebagelofman.goatcounter.com/counter//.json')
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById('view-count').textContent = data.count.toLocaleString();
-    })
-    .catch(() => {
-      document.getElementById('view-count').textContent = '–';
+      document.getElementById('dl-version').textContent = 'latest';
+      document.getElementById('dl-btn').href = 'https://github.com/TheBagelOfMan/Daniel/releases/latest';
+      document.getElementById('footer-version').textContent = '–';
     });
 </script>
-<!-- GoatCounter tracking -->
 <script data-goatcounter="https://thebagelofman.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

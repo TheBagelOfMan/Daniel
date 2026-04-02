@@ -4,6 +4,13 @@
 <link rel="icon" href="images/icon.ico" type="image/x-icon">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta property="og:title" content="Daniel">
+<meta property="og:description" content="A real-time rice difficulty calculator for 4k osu!mania. Displays dan level and tier from Alpha through to Theta with live strain graphs and MSD skillset breakdowns.">
+<meta property="og:image" content="https://thebagelofman.github.io/Daniel/images/hero-screenshot.png">
+<meta property="og:url" content="https://thebagelofman.github.io/Daniel">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="description" content="A real-time rice difficulty calculator for 4k osu!mania. Displays dan level and tier from Alpha through to Theta with live strain graphs and MSD skillset breakdowns.">
 <title>Daniel</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
@@ -325,10 +332,7 @@
   </p>
   <div class="hero-actions">
     <a href="#download" class="btn btn-primary">↓ Download for Windows</a>
-    <div style="display:flex; flex-direction:column; gap:2px;">
-      <a href="benchmark_report.html" class="btn">◈ Benchmark stats</a>
-      <span style="font-size:11px; color:var(--muted); letter-spacing:0.06em;">Last run: <span id="bench-date">...</span></span>
-    </div>
+    <a href="benchmark_report.html" class="btn">◈ Benchmark stats</a>
   </div>
   <div class="stats-row">
     <div class="stat">
@@ -568,14 +572,6 @@
         document.getElementById('stat-within').textContent   = (exactN + adjacentN + withinN).toFixed(1) + '%';
         document.getElementById('stat-maps').textContent     = maps;
 
-        const meta = doc.querySelector('.meta');
-        if (meta) {
-          const match = meta.textContent.match(/(\d{4}-\d{2}-\d{2})/);
-          if (match) {
-            const d = new Date(match[1]);
-            document.getElementById('bench-date').textContent = d.toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
-          }
-        }
       }
     })
     .catch(() => {});

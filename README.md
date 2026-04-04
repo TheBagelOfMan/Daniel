@@ -13,6 +13,7 @@ Use `build_linux.sh` to create a Linux binary:
 ```
 
 This script installs dependencies using python venv and outputs `dist/Daniel-linux`. If `src/msd` is missing, set `MSD_BIN_PATH` at runtime to a Linux-compatible `msd` executable.
+
 On Linux/macOS, it will use Wine if only `src/msd.exe` is available.
 
 ## License

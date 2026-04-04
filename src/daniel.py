@@ -61,9 +61,17 @@ PREFIX_FILL = "#FFFFFF"
 DOT_RED = "#FF3B3B"
 DOT_GREEN = "#00E676"
 
-FONT_PREFIX = ("Segoe UI Semibold", 30)
-FONT_DAN = ("Segoe UI Bold", 45)
-FONT_MSD_SKILL = ("Segoe UI Semibold", 29)
+FONT_SCALE = float(os.environ.get("DANIEL_FONT_SCALE", "1.0" if os.name == "nt" else "0.67"))
+
+
+def _font_size(size):
+    return max(8, int(round(size * FONT_SCALE)))
+
+
+FONT_PREFIX = ("Segoe UI Semibold", _font_size(30))
+FONT_DAN = ("Segoe UI Bold", _font_size(45))
+FONT_MSD_SKILL = ("Segoe UI Semibold", _font_size(29))
+FONT_CONNECTION = ("Segoe UI Semibold", _font_size(18))
 
 PREFIX_Y_OFFSET = 4.1
 MSD_RELEVANCE_FRACTION = 0.15
@@ -128,7 +136,12 @@ current_mode = MODE_FULL
 
 # --- Window setup ---
 
-ctypes.windll.user32.SetProcessDPIAware()
+if os.name == "nt" and hasattr(ctypes, "windll"):
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
 root = tk.Tk()
 root.tk.call("tk", "scaling", 1.0)
 root.title("Daniel by TheBagelOfMan")
@@ -158,7 +171,10 @@ _set_dark_title_bar(root)
 
 _icon_path = resource_path("icon.ico")
 if os.path.exists(_icon_path):
-    root.iconbitmap(_icon_path)
+    try:
+        root.iconbitmap(_icon_path)
+    except Exception:
+        pass
 
 _icon_png_path = resource_path("icon.png")
 if os.path.exists(_icon_png_path):
@@ -252,7 +268,7 @@ def _draw_connection_screen():
     title = canvas.create_text(
         dot_cx + dot_r + 10, cy,
         text=label, fill="#AAAAAA",
-        font=("Segoe UI Semibold", 18), anchor="w",
+        font=FONT_CONNECTION, anchor="w",
     )
     _connection_items += [inner, title]
     _pulse_connection(inner, dot_color, 0)

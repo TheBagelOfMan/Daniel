@@ -16,3 +16,4 @@ build/
 # OS junk
 .DS_Store
 Thumbs.db
+/.venv-linux-build

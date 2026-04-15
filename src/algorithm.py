@@ -72,7 +72,7 @@ def rescale_high(sr):
 
 # --- Preprocessing ---
 
-def preprocess_file(file_path, mod):
+def preprocess_file(file_path, rate):
     p_obj = osu_parser.parser(file_path)
     p_obj.process()
     p = p_obj.get_parsed_data()
@@ -81,10 +81,7 @@ def preprocess_file(file_path, mod):
     for i in range(len(p[1])):
         k = p[1][i]
         h = p[2][i]
-        if mod == "DT":
-            h = int(math.floor(h * 2 / 3))
-        elif mod == "HT":
-            h = int(math.floor(h * 4 / 3))
+        h = int(math.floor(h * (2 / (rate*2))))
         note_seq.append((k, h))
 
     x = 0.3 * ((64.5 - math.ceil(p[5] * 3)) / 500) ** 0.5
@@ -406,8 +403,8 @@ def smooth_D_for_graph(all_corners, D_all, note_seq):
 
 # --- Main Entry Points ---
 
-def calculate(file_path, mod):
-    x, K, T, note_seq, note_seq_by_column = preprocess_file(file_path, mod)
+def calculate(file_path, rate):
+    x, K, T, note_seq, note_seq_by_column = preprocess_file(file_path, rate)
     all_corners, base_corners, A_corners = get_corners(T, note_seq)
 
     key_usage = get_key_usage(K, T, note_seq, base_corners)
@@ -488,7 +485,7 @@ def factor_averages(times, factors):
     return {n: float(integrals[i] / duration) for i, n in enumerate(names)}
 
 
-def parse_hitobjects(file_path, mod="NM"):
+def parse_hitobjects(file_path, rate):
     p_obj = osu_parser.parser(file_path)
     p_obj.process()
     p = p_obj.get_parsed_data()
@@ -497,10 +494,7 @@ def parse_hitobjects(file_path, mod="NM"):
     for i in range(len(p[1])):
         x = p[1][i]
         time = p[2][i]
-        if mod == "DT":
-            time *= 2 / 3
-        elif mod == "HT":
-            time *= 4 / 3
+        time *= (2 / (rate * 2))
         hitobjects.append({"x": x, "time": time})
 
     return hitobjects

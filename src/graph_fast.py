@@ -112,11 +112,11 @@ class FastGraph:
         self._visible = True
         self._last_split_px = -1
 
-    def update_position(self, song_time_ms, mod="NM"):
+    def update_position(self, song_time_ms, rate):
         if not self._visible or self._played_rgb is None or self._unplayed_rgb is None:
             return
 
-        scale = {"DT": 2 / 3, "HT": 4 / 3}.get(mod, 1.0)
+        scale = 2 / (rate * 2)
         adj_time = song_time_ms * scale
         duration = self._t_max - self._t_min
         frac = max(0.0, min((adj_time - self._t_min) / duration, 1.0)) if duration > 0 else 0.0
@@ -134,12 +134,12 @@ class FastGraph:
 
         self._tk_photo.configure(data=self._ppm_header + buf.tobytes())
 
-    def add_pause_marker(self, song_time_ms, mod="NM"):
+    def add_pause_marker(self, song_time_ms, rate):
         """Add a red vertical line at the given song time. Call from main thread only."""
         if not self._visible or self._t_max <= self._t_min:
             return
 
-        scale = {"DT": 2 / 3, "HT": 4 / 3}.get(mod, 1.0)
+        scale = 2 / (rate * 2)
         adj_time = song_time_ms * scale
         duration = self._t_max - self._t_min
         frac = max(0.0, min((adj_time - self._t_min) / duration, 1.0))

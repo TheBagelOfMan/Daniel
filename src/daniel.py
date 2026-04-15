@@ -107,7 +107,6 @@ DAN_ORDER_START = 11
 lock = threading.Lock()
 
 current_map = None
-current_mod = "NM"
 last_state = None
 current_song_time_ms = 0
 
@@ -530,18 +529,18 @@ def _tick():
             ws_recv = _ws_receive_time
             prev_time = _prev_song_time_ms
             prev_recv = _prev_receive_time
-            md = current_mod
+            mod_rate = current_rate
             paused = _paused
             frozen_ms = _frozen_interp_ms
 
         if paused:
-            graph.update_position(frozen_ms, md)
+            graph.update_position(frozen_ms, mod_rate)
         else:
             real_dt = ws_recv - prev_recv
             rate = (ws_time - prev_time) / real_dt if real_dt > 0.01 and ws_time > prev_time else 1000.0
             rate = max(0.0, min(rate, 5000.0))
             interpolated_ms = ws_time + rate * (now - ws_recv)
-            graph.update_position(interpolated_ms, md)
+            graph.update_position(interpolated_ms, mod_rate)
 
     root.after(16, _tick)
 
@@ -557,7 +556,7 @@ def on_open(ws_app):
 
 
 def on_message(ws_app, msg):
-    global current_map, current_mod, current_song_time_ms
+    global current_map, current_rate, current_song_time_ms
     global _ws_receive_time, _ws_song_time_ms, _prev_song_time_ms, _prev_receive_time
     global connection_phase, last_state, _last_message_time
     global _paused, _pause_time_ms, _frozen_interp_ms
@@ -572,6 +571,7 @@ def on_message(ws_app, msg):
 
         folder = bm["path"]["folder"]
         file = bm["path"]["file"]
+        stats = bm["stats"]
 
         if not folder or not file:
             if connection_phase == "ready":
@@ -584,14 +584,14 @@ def on_message(ws_app, msg):
 
         songs = d["settings"]["folders"]["songs"]
         new_map = os.path.join(songs, folder, file)
-        new_mod = get_rate_mod(read_mods(d))
+        new_rate = get_rate(stats)
         new_time = bm.get("time", {}).get("current", 0)
         now = time.monotonic()
 
         with lock:
             prev_ws_time = _ws_song_time_ms
             current_map = new_map
-            current_mod = new_mod
+            current_rate = new_rate
             current_song_time_ms = new_time
             _prev_song_time_ms = _ws_song_time_ms
             _prev_receive_time = _ws_receive_time
@@ -618,7 +618,7 @@ def on_message(ws_app, msg):
                 _pause_time_ms = new_time
                 _frozen_interp_ms = float(new_time)
                 print(f"[Pause] Detected at {new_time} ms")
-                root.after(0, lambda t=new_time, m=new_mod: graph.add_pause_marker(t, m))
+                root.after(0, lambda t=new_time, m=new_rate: graph.add_pause_marker(t, m))
 
         else:
             if _paused:
@@ -657,12 +657,15 @@ def read_mods(d):
     )
 
 
-def get_rate_mod(m):
-    if "DT" in m or "NC" in m:
-        return "DT"
-    if "HT" in m:
-        return "HT"
-    return "NM"
+def get_rate(stats):
+
+    ar = stats["AR"]
+    memoryAR = stats["memoryAR"]
+
+    # 13 is a zero ms AR
+    rate = round((13-memoryAR)/(13-ar), 2)
+
+    return rate
 
 
 # --- Calculation loop ---
@@ -678,9 +681,9 @@ def calculation_loop():
             continue
 
         with lock:
-            state = (current_map, current_mod)
+            state = (current_map, current_rate)
 
-        mp, mod = state
+        mp, rate = state
 
         if not mp or not os.path.exists(mp):
             time.sleep(0.1)
@@ -700,14 +703,14 @@ def calculation_loop():
             if _p.get_parsed_data()[0] != 4:
                 raise ValueError(f"Not a 4k map (keycount={_p.get_parsed_data()[0]})")
 
-            SR, times, strain, factors = algorithm.calculate(mp, mod)
+            SR, times, strain, factors = algorithm.calculate(mp, rate)
 
             t_arr = np.asarray(times, dtype=float)
             d_arr = np.asarray(strain, dtype=float)
             current_strain_data = (t_arr, d_arr)
 
             try:
-                hitobjects = msd_converter.parse_hitobjects(mp, mod)
+                hitobjects = msd_converter.parse_hitobjects(mp, rate)
                 etterna_rows = msd_converter.osu_to_etterna_rows(hitobjects)
                 msd_result = msd_converter.calculate_msd(etterna_rows)
                 print("\n[MSD Skillsets]")
@@ -726,7 +729,7 @@ def calculation_loop():
             _last_dan_label = dan_label
             _last_dan_numeric = dan_numeric
 
-            print(f"\n[Map Factors] {os.path.basename(mp)} [{mod}]")
+            print(f"\n[Map Factors] {os.path.basename(mp)} [{rate}]")
             for k, v in averages.items():
                 print(f"{k:<6}: {v:.4f}")
             print(f"SR    : {SR:.4f}★")

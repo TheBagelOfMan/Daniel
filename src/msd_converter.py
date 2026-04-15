@@ -33,7 +33,7 @@ def _resolve_msd_command():
     return [native_msd], native_msd
 
 
-def parse_hitobjects(osu_file, mod="NM"):
+def parse_hitobjects(osu_file, rate):
     hitobjects = []
     in_section = False
 
@@ -53,10 +53,7 @@ def parse_hitobjects(osu_file, mod="NM"):
             time = int(parts[2])
             obj_type = int(parts[3])
 
-            if mod == "DT":
-                time = int(time * 2 / 3)
-            elif mod == "HT":
-                time = int(time * 4 / 3)
+            time = int(time * (2 / (rate * 2)))
 
             hitobjects.append({"x": x, "time": time, "type": obj_type})
 

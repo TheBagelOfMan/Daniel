@@ -12,6 +12,7 @@ import websocket
 import algorithm
 import msd_converter
 from graph_fast import FastGraph
+from native_7k import calculate_native_7k_sr
 
 
 def resource_path(relative_path):
@@ -77,30 +78,48 @@ PREFIX_Y_OFFSET = 4.1
 MSD_RELEVANCE_FRACTION = 0.15
 VIBRO_JACKSPEED_THRESHOLD = 0.90
 
-DAN_COLORS = {
-    "Alpha":   "#ff5a5a",
-    "Beta":    "#ffd84d",
-    "Gamma":   "#00ffd5",
-    "Delta":   "#ff7b00",
-    "Epsilon": "#ff7a9e",
-    "Zeta":    "#D7F7FF",
-    "Eta":     "#ff2b2b",
-    "Theta":   "#CC00FF",
+DAN_COLORS_7K = {
+    "1st Dan": "#FFFFFF", "2nd Dan": "#FFFFFF", "3rd Dan": "#FFFFFF",
+    "4th Dan": "#FFFFFF", "5th Dan": "#FFFFFF", "6th Dan": "#FFFFFF",
+    "7th Dan": "#FFFFFF", "8th Dan": "#FFFFFF", "9th Dan": "#FFFFFF",
+    "10th Dan": "#FFD700",
+    "Gamma": "#00FFD5", "Azimuth": "#FF7B00", "Zenith": "#CC00FF", "Stellium": "#FF3B3B"
 }
 
-DAN_MEANS = {
-    "Alpha":   6.562,
-    "Beta":    6.957,
-    "Gamma":   7.459,
-    "Delta":   7.939,
-    "Epsilon": 9.095,
-    "Zeta":    9.473,
-    "Eta":     10.162,
-    "Theta":   10.782,
+# (Threshold Rice)
+DAN_MEANS_7K_RICE = {
+    "1st Dan": 15.1, "2nd Dan": 16.1, "3rd Dan": 17.2, "4th Dan": 18.4,
+    "5th Dan": 19.6, "6th Dan": 20.9, "7th Dan": 22.3, "8th Dan": 23.7,
+    "9th Dan": 25.2, "10th Dan": 26.7, "Gamma": 28.3, "Azimuth": 30.0,
+    "Zenith": 31.7, "Stellium": 33.5
 }
-ORDER = list(DAN_MEANS.keys())
-DAN_ORDER_START = 11
 
+# (Threshold LN)
+DAN_MEANS_7K_LN = {
+    "1st Dan": 6.4, "2nd Dan": 7.7, "3rd Dan": 9.1, "4th Dan": 10.7,
+    "5th Dan": 12.4, "6th Dan": 14.2, "7th Dan": 16.2, "8th Dan": 18.3,
+    "9th Dan": 20.5, "10th Dan": 22.9, "Gamma": 25.4, "Azimuth": 28.0,
+    "Zenith": 30.8, "Stellium": 33.7
+}
+
+# 4K Threshold (Unchanged)
+DAN_COLORS_4K = {
+    "Alpha": "#ff5a5a", "Beta": "#ffd84d", "Gamma": "#00ffd5",
+    "Delta": "#ff7b00", "Epsilon": "#ff7a9e", "Zeta": "#D7F7FF",
+    "Eta": "#ff2b2b", "Theta": "#CC00FF",
+}
+
+DAN_MEANS_4K = {
+    "Alpha": 6.562, "Beta": 6.957, "Gamma": 7.459, "Delta": 7.939,
+    "Epsilon": 9.095, "Zeta": 9.473, "Eta": 10.162, "Theta": 10.782,
+}
+
+DAN_COLORS = {**DAN_COLORS_4K, **DAN_COLORS_7K}
+
+ORDER_4K = list(DAN_MEANS_4K.keys())
+ORDER_7K = list(DAN_MEANS_7K_RICE.keys())
+DAN_ORDER_START_4K = 11
+DAN_ORDER_START_7K = 1
 
 # --- State ---
 
@@ -697,10 +716,12 @@ def calculation_loop():
             import osu_file_parser as osu_parser
             _p = osu_parser.parser(mp)
             _p.process()
-            if _p.get_parsed_data()[0] != 4:
-                raise ValueError(f"Not a 4k map (keycount={_p.get_parsed_data()[0]})")
+            
+            keycount = _p.get_parsed_data()[0]
+            if keycount > 10:
+                raise ValueError(f"Not supported map (keycount={keycount})")
 
-            SR, times, strain, factors = algorithm.calculate(mp, mod)
+            SR, times, strain, factors, ln_ratio = algorithm.calculate(mp, mod)
 
             t_arr = np.asarray(times, dtype=float)
             d_arr = np.asarray(strain, dtype=float)
@@ -708,20 +729,29 @@ def calculation_loop():
 
             try:
                 hitobjects = msd_converter.parse_hitobjects(mp, mod)
-                etterna_rows = msd_converter.osu_to_etterna_rows(hitobjects)
-                msd_result = msd_converter.calculate_msd(etterna_rows)
-                print("\n[MSD Skillsets]")
+                
+                # --- MESIN BARU: NATIVE 7K ---
+                if keycount == 7:
+                    # Langsung telan dictionary dari native_7k!
+                    msd_result = calculate_native_7k_sr(hitobjects)
+                    
+                # --- MESIN LAMA: 4K TETAP PAKAI MSD ---
+                else:
+                    etterna_rows = msd_converter.osu_to_etterna_rows(hitobjects, keycount=keycount)
+                    msd_result = msd_converter.calculate_msd(etterna_rows)
+                    
+                print("\n[Skillsets]")
                 for k, v in msd_result.items():
                     print(f"{k:<10}: {v:.2f}")
             except Exception as msd_e:
-                print(f"[MSD] Error calculating MSD, skipping: {msd_e}")
+                print(f"[MSD] Error calculating, skipping: {msd_e}")
                 msd_result = None
 
             with lock:
                 current_msd_data = msd_result
 
             averages = algorithm.factor_averages(times, factors)
-            dan_label, dan_numeric = get_dan_from_diff(SR)
+            dan_label, dan_numeric = get_dan_from_diff(SR, keycount, ln_ratio)
 
             _last_dan_label = dan_label
             _last_dan_numeric = dan_numeric
@@ -758,41 +788,65 @@ def calculation_loop():
 
 # --- Dan boundary tables ---
 
-def _precompute_dan_boundaries():
-    means = [DAN_MEANS[d] for d in ORDER]
+# --- Dan boundary tables ---
+
+ORDER_4K = list(DAN_MEANS_4K.keys())
+ORDER_7K = list(DAN_MEANS_7K_RICE.keys())
+DAN_ORDER_START_4K = 11
+DAN_ORDER_START_7K = 1
+
+def _precompute_dan_boundaries(means_dict, order_list):
+    means = [means_dict[d] for d in order_list]
     boundaries = []
-    for i in range(len(ORDER)):
+    for i in range(len(order_list)):
         mean = means[i]
         lower = (means[i - 1] + mean) / 2 if i > 0 else mean - ((means[1] + mean) / 2 - mean)
         upper = (mean + means[i + 1]) / 2 if i < len(means) - 1 else mean + (mean - means[i - 1]) / 2
         boundaries.append((lower, upper))
     return boundaries
 
+_DAN_BOUNDARIES_4K = _precompute_dan_boundaries(DAN_MEANS_4K, ORDER_4K)
+_DAN_BOUNDARIES_7K_RICE = _precompute_dan_boundaries(DAN_MEANS_7K_RICE, ORDER_7K)
+_DAN_BOUNDARIES_7K_LN = _precompute_dan_boundaries(DAN_MEANS_7K_LN, ORDER_7K)
 
-_DAN_BOUNDARIES = _precompute_dan_boundaries()
+def get_dan_from_diff(diff, keycount, ln_ratio):
+    if keycount == 7:
+        order = ORDER_7K
+        base_num = DAN_ORDER_START_7K
+        
+        # Automatic Switch TO LN Mode
+        if ln_ratio >= 0.25:
+            boundaries = _DAN_BOUNDARIES_7K_LN
+        else:
+            boundaries = _DAN_BOUNDARIES_7K_RICE
+    else:
+        order = ORDER_4K
+        boundaries = _DAN_BOUNDARIES_4K
+        base_num = DAN_ORDER_START_4K
 
+    if diff < boundaries[0][0]:
+        return f"<{order[0]} Low", round(diff, 2)
+    if diff >= boundaries[-1][1]:
+        return "? ? ? ? ?", round(diff, 2)
 
-def get_dan_from_diff(diff):
-    if diff < _DAN_BOUNDARIES[0][0]:
-        return f"<{ORDER[0]} Low", "N/A"
-    if diff >= _DAN_BOUNDARIES[-1][1]:
-        return "? ? ? ? ?", "N/A"
-
-    for i, dan in enumerate(ORDER):
-        lower, upper = _DAN_BOUNDARIES[i]
+    for i, dan in enumerate(order):
+        lower, upper = boundaries[i]
         if lower <= diff < upper:
             t = max(0.0, min((diff - lower) / (upper - lower), 1.0))
-            numeric = round(DAN_ORDER_START + i + t, 2)
+            numeric = round(base_num + i + t, 2)
+            
+        
+            suffix_ln = " [LN]" if keycount == 7 and ln_ratio >= 0.25 else ""
+            
             if t < 1 / 3:
-                label = f"{dan} Low"
+                label = f"{dan} Low{suffix_ln}"
             elif t < 2 / 3:
-                label = f"{dan} Mid"
+                label = f"{dan} Mid{suffix_ln}"
             else:
-                label = f"{dan} High"
+                label = f"{dan} High{suffix_ln}"
             return label, numeric
 
-    return "? ? ? ? ?", "N/A"
-
+    return "? ? ? ? ?", round(diff, 2)
 
 # --- Boot ---
 

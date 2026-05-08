@@ -78,14 +78,27 @@ def preprocess_file(file_path, mod):
     p = p_obj.get_parsed_data()
 
     note_seq = []
+    total_objects = len(p[1])
+    ln_objects = 0
+
     for i in range(len(p[1])):
         k = p[1][i]
         h = p[2][i]
+        obj_type = p[4][i]
+
         if mod == "DT":
             h = int(math.floor(h * 2 / 3))
         elif mod == "HT":
             h = int(math.floor(h * 4 / 3))
+            
+        
         note_seq.append((k, h))
+        
+        
+        if obj_type & 128:
+            ln_objects += 1
+
+    ln_ratio = ln_objects / total_objects if total_objects > 0 else 0.0
 
     x = 0.3 * ((64.5 - math.ceil(p[5] * 3)) / 500) ** 0.5
     x = min(x, 0.6 * (x - 0.09) + 0.09)
@@ -99,9 +112,7 @@ def preprocess_file(file_path, mod):
     K = p[0]
     T = max(n[1] for n in note_seq) + 1
 
-    return x, K, T, note_seq, note_seq_by_column
-
-
+    return x, K, T, note_seq, note_seq_by_column, ln_ratio
 # --- Corner Computation ---
 
 def get_corners(T, note_seq):
@@ -407,7 +418,9 @@ def smooth_D_for_graph(all_corners, D_all, note_seq):
 # --- Main Entry Points ---
 
 def calculate(file_path, mod):
-    x, K, T, note_seq, note_seq_by_column = preprocess_file(file_path, mod)
+
+    x, K, T, note_seq, note_seq_by_column, ln_ratio = preprocess_file(file_path, mod)
+    
     all_corners, base_corners, A_corners = get_corners(T, note_seq)
 
     key_usage = get_key_usage(K, T, note_seq, base_corners)
@@ -463,6 +476,17 @@ def calculate(file_path, mod):
     SR *= total_notes / (total_notes + 60)
     SR = rescale_high(SR) * 0.975
 
+    
+    if K == 7:
+        SR = SR * 3.25 
+
+    
+    ln_buff_factor = 0.08 
+    ln_multiplier = 1.0 + (ln_ratio * ln_buff_factor)
+    
+    SR = SR * ln_multiplier
+    # ----------------------------------
+
     D_pre = _apply_proximity_envelope(all_corners, D_all, note_seq)
     D_graph = smooth_D_for_graph(all_corners, D_pre, note_seq)
 
@@ -476,9 +500,8 @@ def calculate(file_path, mod):
             "Same-Column Pressure": Jbar,
             "Cross-Column Pressure": Xbar,
         },
+        ln_ratio
     )
-
-
 def factor_averages(times, factors):
     times = np.asarray(times, dtype=float)
     names = list(factors.keys())

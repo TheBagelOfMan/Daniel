@@ -58,6 +58,8 @@ def parse_hitobjects(osu_file, mod="NM"):
             elif mod == "HT":
                 time = int(time * 4 / 3)
 
+            # Cukup masukkan waktu tekan (start) saja, 
+            # biarkan Etterna (MSD) yang mengatur logikanya
             hitobjects.append({"x": x, "time": time, "type": obj_type})
 
     return hitobjects
@@ -71,7 +73,6 @@ def osu_to_etterna_rows(hitobjects, keycount=4):
         time = round(obj["time"] / 1000.0, 4)
         column = int(obj["x"] // column_width)
         rows[time] = rows.get(time, 0) | (1 << column)
-        # LN releases are intentionally ignored (obj_type & 128)
 
     return [{"notes": rows[t], "time": t} for t in sorted(rows)]
 

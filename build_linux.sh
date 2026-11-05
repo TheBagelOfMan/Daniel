@@ -33,6 +33,12 @@ fi
 "$PYTHON_BIN" -m pip install --upgrade pip
 "$PYTHON_BIN" -m pip install pyinstaller numpy pillow websocket-client
 
+if command -v g++ >/dev/null 2>&1; then
+  g++ -O2 -std=c++17 -o src/xdc1 xdc1/xdc1.cpp
+else
+  echo "Warning: g++ not found. XDC1 will require XDC1_BIN_PATH or Wine with src/xdc1.exe at runtime."
+fi
+
 ADD_DATA_ARGS=()
 
 if [[ -f src/icon.png ]]; then
@@ -41,14 +47,12 @@ fi
 if [[ -f src/icon.ico ]]; then
   ADD_DATA_ARGS+=(--add-data "src/icon.ico:.")
 fi
-if [[ -f src/msd ]]; then
-  chmod +x src/msd
-  ADD_DATA_ARGS+=(--add-data "src/msd:.")
-else
-  echo "Warning: src/msd not found. Build will succeed, but MSD will require MSD_BIN_PATH at runtime."
+if [[ -f src/xdc1 ]]; then
+  chmod +x src/xdc1
+  ADD_DATA_ARGS+=(--add-data "src/xdc1:.")
 fi
-if [[ -f src/msd.exe ]]; then
-  ADD_DATA_ARGS+=(--add-data "src/msd.exe:.")
+if [[ -f src/xdc1.exe ]]; then
+  ADD_DATA_ARGS+=(--add-data "src/xdc1.exe:.")
 fi
 
 "$PYINSTALLER_BIN" \

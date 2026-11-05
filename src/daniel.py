@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import socket
 import time
 import threading
 import ctypes
@@ -10,7 +11,7 @@ import numpy as np
 import websocket
 
 import algorithm
-import msd_converter
+import osu_memory
 from graph_fast import FastGraph
 
 
@@ -22,10 +23,17 @@ def resource_path(relative_path):
 
 # --- Constants ---
 
-TOSU_WS = "ws://localhost:24050/ws"
+TOSU_HOST = "localhost"
+TOSU_PORT = 24050
+TOSU_WS = f"ws://{TOSU_HOST}:{TOSU_PORT}/websocket/v2"
+# how often to look for tosu and for osu!, and how often to read osu! directly.
+TOSU_RECHECK_S = 1.0
+OSU_RECHECK_S = 0.5
+NATIVE_POLL_S = 0.03
 
 BREAK_ZERO_THRESHOLD_MS = 400
 TIME_JUMP_THRESHOLD_MS = 2000
+PAUSE_DETECT_S = 0.25
 _OSU_TIMEOUT = 1.0
 
 MODE_COMPACT = 0
@@ -58,24 +66,22 @@ MODE_WIDTHS = {
 
 BG_COLOR = "#000000"
 PREFIX_FILL = "#FFFFFF"
-DOT_RED = "#FF3B3B"
-DOT_GREEN = "#00E676"
 
 FONT_SCALE = float(os.environ.get("DANIEL_FONT_SCALE", "1.0" if os.name == "nt" else "0.67"))
 
 
 def _font_size(size):
-    return max(8, int(round(size * FONT_SCALE)))
+    # negative is pixels, which tk scaling never touches (Windows resets it on a display change).
+    return -max(8, int(round(size * FONT_SCALE)))
 
 
 FONT_PREFIX = ("Segoe UI Semibold", _font_size(30))
 FONT_DAN = ("Segoe UI Bold", _font_size(45))
-FONT_MSD_SKILL = ("Segoe UI Semibold", _font_size(29))
+FONT_SKILLSET = ("Segoe UI Semibold", _font_size(29))
 FONT_CONNECTION = ("Segoe UI Semibold", _font_size(18))
 
 PREFIX_Y_OFFSET = 4.1
-MSD_RELEVANCE_FRACTION = 0.15
-VIBRO_JACKSPEED_THRESHOLD = 0.90
+SKILLSET_RELEVANCE_FRACTION = 0.20
 
 DAN_COLORS = {
     "Alpha":   "#ff5a5a",
@@ -86,17 +92,21 @@ DAN_COLORS = {
     "Zeta":    "#D7F7FF",
     "Eta":     "#ff2b2b",
     "Theta":   "#CC00FF",
+    "Iota":    "#FFFFFF",
+    "Kappa":   "#FFFFFF",
 }
 
 DAN_MEANS = {
-    "Alpha":   6.562,
-    "Beta":    6.957,
-    "Gamma":   7.459,
-    "Delta":   7.939,
-    "Epsilon": 9.095,
-    "Zeta":    9.473,
-    "Eta":     10.162,
-    "Theta":   10.782,
+    "Alpha":   11.0,
+    "Beta":    12.0,
+    "Gamma":   13.0,
+    "Delta":   14.0,
+    "Epsilon": 15.0,
+    "Zeta":    16.0,
+    "Eta":     17.0,
+    "Theta":   18.0,
+    "Iota":    18.99,   # mean of the four Dan ~ REFORM ~ FINAL-IOTA maps
+    "Kappa":   19.60,   # mean of the four Dan ~ REFORM ~ FINAL-KAPPA maps
 }
 ORDER = list(DAN_MEANS.keys())
 DAN_ORDER_START = 11
@@ -107,7 +117,7 @@ DAN_ORDER_START = 11
 lock = threading.Lock()
 
 current_map = None
-current_mod = "NM"
+current_rate = 1.0  # clock rate: 1.5 for DT, 0.75 for HT, anything on lazer
 last_state = None
 current_song_time_ms = 0
 
@@ -120,18 +130,21 @@ _last_message_time = 0.0
 _paused = False
 _pause_time_ms = 0
 _frozen_interp_ms = 0.0
+_time_changed_at = 0.0
 
 loading = False
 loading_step = 0
 _last_loading_dot = 0.0
 
 current_strain_data = None
-current_msd_data = None
+current_skillset_data = None
 connection_phase = "connecting"
+source_name = "tosu"  # who is feeding map data: "tosu" or "osu!"
 
 _last_dan_label = "."
 _last_dan_numeric = ""
 current_mode = MODE_FULL
+ln_enabled = True
 
 
 # --- Window setup ---
@@ -190,11 +203,10 @@ canvas.pack(expand=True, fill="both")
 graph = FastGraph(canvas, GRAPH_HEIGHT, WINDOW_WIDTH)
 
 text_items = []
-msd_items = []
+skillset_items = []
 accent_bar = None
 current_bar_color = "#333333"
 _connection_items = []
-_pulse_job = None
 
 
 # --- Drawing helpers ---
@@ -225,6 +237,14 @@ def draw_outline_text(x, y, text, fill, outline, font):
     return items
 
 
+# drawn like "? ? ? ? ?": black text outlined in white, with a white bar.
+OUTLINED_DANS = ("Iota", "Kappa")
+
+
+def is_outlined_text(text):
+    return text == "? ? ? ? ?" or text.split(" ")[0] in OUTLINED_DANS
+
+
 def is_loading_text(text):
     return text in (".", "..", "...")
 
@@ -236,11 +256,7 @@ def _get_text_y_offset():
 # --- Connection screen ---
 
 def _draw_connection_screen():
-    global _connection_items, _pulse_job
-
-    if _pulse_job is not None:
-        root.after_cancel(_pulse_job)
-        _pulse_job = None
+    global _connection_items
 
     for item in _connection_items:
         canvas.delete(item)
@@ -249,51 +265,27 @@ def _draw_connection_screen():
     if connection_phase == "ready":
         return
 
-    cy = MODE_HEIGHTS[current_mode] // 2
-
     if connection_phase == "connecting":
-        label = "Waiting for tosu connection..."
-        dot_color = DOT_RED
+        label = "Waiting for osu!..."
     else:
-        label = "tosu connected - waiting for map data"
-        dot_color = DOT_GREEN
+        label = f"{source_name} connected - waiting for map data"
 
-    dot_r = 6
-    dot_cx = 20
-    inner = canvas.create_oval(
-        dot_cx - dot_r, cy - dot_r,
-        dot_cx + dot_r, cy + dot_r,
-        fill=dot_color, outline="",
-    )
+    cx, cy = MODE_WIDTHS[current_mode] // 2, MODE_HEIGHTS[current_mode] // 2
+    note = "osu!lazer needs tosu running" if connection_phase == "connecting" else None
     title = canvas.create_text(
-        dot_cx + dot_r + 10, cy,
+        cx, cy - (16 if note else 0),
         text=label, fill="#AAAAAA",
-        font=FONT_CONNECTION, anchor="w",
+        font=FONT_CONNECTION, anchor="center",
     )
-    _connection_items += [inner, title]
-    _pulse_connection(inner, dot_color, 0)
-
-
-def _pulse_connection(inner, dot_color, step):
-    global _pulse_job
-
-    if connection_phase == "ready":
-        _pulse_job = None
-        return
-
-    phase = (step % 40) / 40
-    alpha = 0.4 + 0.6 * abs(1 - 2 * phase)
-    pulsed = lerp_color("#000000", dot_color, alpha)
-    canvas.itemconfig(inner, fill=pulsed)
-    _pulse_job = root.after(50, lambda: _pulse_connection(inner, dot_color, step + 1))
+    _connection_items.append(title)
+    if note:
+        _connection_items.append(canvas.create_text(
+            cx, cy + 16, text=note, fill="#AAAAAA", font=FONT_CONNECTION, anchor="center",
+        ))
 
 
 def _clear_connection_screen():
-    global _connection_items, _pulse_job
-
-    if _pulse_job is not None:
-        root.after_cancel(_pulse_job)
-        _pulse_job = None
+    global _connection_items
 
     for item in _connection_items:
         canvas.delete(item)
@@ -304,15 +296,15 @@ def _clear_connection_screen():
 
 
 def _clear_normal_ui():
-    global text_items, msd_items, accent_bar
+    global text_items, skillset_items, accent_bar
 
     for item in text_items:
         canvas.delete(item)
     text_items.clear()
 
-    for item in msd_items:
+    for item in skillset_items:
         canvas.delete(item)
-    msd_items.clear()
+    skillset_items.clear()
 
     if accent_bar:
         canvas.delete(accent_bar)
@@ -322,46 +314,39 @@ def _clear_normal_ui():
 
 
 def _clear_invalid_ui():
-    global msd_items
-    for item in msd_items:
+    global skillset_items
+    for item in skillset_items:
         canvas.delete(item)
-    msd_items.clear()
+    skillset_items.clear()
     graph.hide()
 
 
 # --- UI components ---
 
-def get_relevant_skillsets(msd_result):
-    overall = msd_result.get("overall", 0)
-    threshold = overall * MSD_RELEVANCE_FRACTION
-    relevant = {k: v for k, v in msd_result.items() if k != "overall" and (overall - v) <= threshold}
-    top3 = sorted(relevant.items(), key=lambda x: x[1], reverse=True)[:3]
-    jackspeed = msd_result.get("jackspeed", 0)
-    is_vibro = (overall > 0) and (jackspeed / overall >= VIBRO_JACKSPEED_THRESHOLD)
-    return overall, top3, is_vibro
+def get_relevant_skillsets(skillset_data):
+    overall, skillsets = skillset_data
+    threshold = overall * SKILLSET_RELEVANCE_FRACTION
+    ranked = sorted(((k, v) for k, v in skillsets.items() if v > 0), key=lambda x: x[1], reverse=True)
+    # skillsets within the threshold of overall, and always at least the top one.
+    return [kv for i, kv in enumerate(ranked) if i == 0 or overall - kv[1] <= threshold][:3]
 
 
-def draw_msd(msd_result, color):
-    global msd_items
-    for item in msd_items:
+def draw_skillsets(skillset_data, color):
+    global skillset_items
+    for item in skillset_items:
         canvas.delete(item)
-    msd_items.clear()
+    skillset_items.clear()
 
-    if current_mode == MODE_COMPACT:
+    if current_mode == MODE_COMPACT or skillset_data is None:
         return
 
-    if msd_result is None:
-        y = _get_text_y_offset() + 80
-        msd_items += draw_text(14, y, "MSD Error", "#FF4444", FONT_MSD_SKILL)
-        return
-
-    overall, top3, _ = get_relevant_skillsets(msd_result)
+    top3 = get_relevant_skillsets(skillset_data)
     if not top3:
         return
 
     skillset_str = ", ".join(key.capitalize() for key, _ in top3)
     y = _get_text_y_offset() + 80
-    msd_items += draw_text(14, y, f"{skillset_str}  {overall:.2f}MSD", "#FFFFFF", FONT_MSD_SKILL)
+    skillset_items += draw_text(14, y, skillset_str, "#FFFFFF", FONT_SKILLSET)
 
 
 def draw_accent_bar():
@@ -428,19 +413,8 @@ def update_dan_text(dan_label, dan_numeric):
     pw = bbox[2] - bbox[0] if bbox else 0
     xpos = 14 + pw + 8
 
-    is_vibro = False
-    if (
-        not is_loading_text(dan_label)
-        and dan_label not in ("Invalid Beatmap", "? ? ? ? ?")
-        and current_msd_data is not None
-    ):
-        _, _, is_vibro = get_relevant_skillsets(current_msd_data)
-
-    if dan_label == "? ? ? ? ?":
+    if is_outlined_text(dan_label):
         dan_items = draw_outline_text(xpos, y, dan_label, fill="#000000", outline="#FFFFFF", font=FONT_DAN)
-        new_bar_color = "#FFFFFF"
-    elif is_vibro:
-        dan_items = draw_text(xpos, y, "VIBRO", "#FFFFFF", FONT_DAN)
         new_bar_color = "#FFFFFF"
     else:
         dan_items = draw_text(xpos, y, dan_label, current_bar_color, FONT_DAN)
@@ -450,28 +424,47 @@ def update_dan_text(dan_label, dan_numeric):
     if not is_loading_text(dan_label) and dan_numeric:
         dan_bbox = canvas.bbox(dan_items[-1])
         numeric_x = (dan_bbox[2] if dan_bbox else xpos) + 10
-        display_numeric = "N/A" if is_vibro else f"({dan_numeric})"
-        text_items.extend(draw_text(numeric_x, prefix_y, display_numeric, "#FFFFFF", FONT_PREFIX))
+        text_items.extend(draw_text(numeric_x, prefix_y, f"({dan_numeric})", "#FFFFFF", FONT_PREFIX))
+
+    text_items.extend(draw_ln_label())
 
     if current_mode != MODE_COMPACT:
-        draw_msd(current_msd_data, new_bar_color if not is_loading_text(dan_label) else "#333333")
+        draw_skillsets(current_skillset_data, new_bar_color if not is_loading_text(dan_label) else "#333333")
     else:
-        for item in msd_items:
+        for item in skillset_items:
             canvas.delete(item)
-        msd_items.clear()
+        skillset_items.clear()
 
     if current_mode == MODE_FULL:
         graph.set_color(
-            new_bar_color if (is_loading_text(dan_label) or dan_label == "? ? ? ? ?") else current_bar_color
+            new_bar_color if (is_loading_text(dan_label) or is_outlined_text(dan_label)) else current_bar_color
         )
 
-    if not is_loading_text(dan_label) and dan_label != "? ? ? ? ?":
+    if not is_loading_text(dan_label) and not is_outlined_text(dan_label):
         fade_items(dan_items[-1], bar, current_bar_color, new_bar_color)
     else:
         canvas.itemconfig(bar, fill=new_bar_color)
         current_bar_color = new_bar_color
-        if dan_label != "? ? ? ? ?":
+        if not is_outlined_text(dan_label):
             canvas.itemconfig(dan_items[-1], fill=fill)
+
+
+def draw_ln_label():
+    """Draw LN on/off on the skillset row, right-aligned; L toggles it."""
+    if current_mode == MODE_COMPACT:
+        return []
+    label = "LN on" if ln_enabled else "LN off"
+    fill = "#FFFFFF" if ln_enabled else "#888888"
+    y = _get_text_y_offset() + 80
+    return draw_text(MODE_WIDTHS[current_mode] - 14, y, label, fill, FONT_SKILLSET, anchor="e")
+
+
+def toggle_ln(event=None):
+    global ln_enabled
+    ln_enabled = not ln_enabled
+    print(f"[LN] {'On' if ln_enabled else 'Off'}")
+    if connection_phase == "ready":
+        update_dan_text(_last_dan_label, _last_dan_numeric)
 
 
 def set_dan_text(label, numeric):
@@ -505,6 +498,8 @@ def cycle_mode(event=None):
 
 
 root.bind("<Tab>", cycle_mode)
+root.bind("<l>", toggle_ln)
+root.bind("<L>", toggle_ln)
 
 
 # --- Tick loop ---
@@ -530,7 +525,7 @@ def _tick():
             ws_recv = _ws_receive_time
             prev_time = _prev_song_time_ms
             prev_recv = _prev_receive_time
-            md = current_mod
+            md = current_rate
             paused = _paused
             frozen_ms = _frozen_interp_ms
 
@@ -546,32 +541,36 @@ def _tick():
     root.after(16, _tick)
 
 
-# --- WebSocket callbacks ---
+# --- Source callbacks ---
 
-def on_open(ws_app):
-    global connection_phase, last_state
-    print("[WS] Connected to tosu.")
+def on_open(ws_app, name="tosu"):
+    global connection_phase, last_state, source_name
+    print(f"[Source] Connected to {name}.")
+    source_name = name
     last_state = None
     connection_phase = "waiting_map"
     root.after(0, _draw_connection_screen)
 
 
 def on_message(ws_app, msg):
-    global current_map, current_mod, current_song_time_ms
+    try:
+        handle_state(json.loads(msg))
+    except ValueError:
+        pass
+
+
+def handle_state(d):
+    """Handle one update from tosu's v2 API, or the memory reader in the same shape."""
+    global current_map, current_rate, current_song_time_ms
     global _ws_receive_time, _ws_song_time_ms, _prev_song_time_ms, _prev_receive_time
     global connection_phase, last_state, _last_message_time
-    global _paused, _pause_time_ms, _frozen_interp_ms
+    global _paused, _pause_time_ms, _frozen_interp_ms, _time_changed_at
 
     _last_message_time = time.monotonic()
 
     try:
-        d = json.loads(msg)
-        bm = d.get("menu", {}).get("bm")
-        if not bm:
-            return
-
-        folder = bm["path"]["folder"]
-        file = bm["path"]["file"]
+        folder = d.get("folders", {}).get("beatmap")
+        file = d.get("files", {}).get("beatmap")
 
         if not folder or not file:
             if connection_phase == "ready":
@@ -582,21 +581,24 @@ def on_message(ws_app, msg):
                 root.after(0, _draw_connection_screen)
             return
 
-        songs = d["settings"]["folders"]["songs"]
+        songs = d["folders"]["songs"]
         new_map = os.path.join(songs, folder, file)
-        new_mod = get_rate_mod(read_mods(d))
-        new_time = bm.get("time", {}).get("current", 0)
+        new_rate = read_rate(d)
+        new_time = d.get("beatmap", {}).get("time", {}).get("live", 0)
         now = time.monotonic()
 
         with lock:
             prev_ws_time = _ws_song_time_ms
             current_map = new_map
-            current_mod = new_mod
+            current_rate = new_rate
             current_song_time_ms = new_time
-            _prev_song_time_ms = _ws_song_time_ms
-            _prev_receive_time = _ws_receive_time
-            _ws_song_time_ms = new_time
-            _ws_receive_time = now
+            # a repeated time is just a sample between osu! frames (fewer when tabbed out).
+            if new_time != _ws_song_time_ms:
+                _prev_song_time_ms = _ws_song_time_ms
+                _prev_receive_time = _ws_receive_time
+                _ws_song_time_ms = new_time
+                _ws_receive_time = now
+                _time_changed_at = now
 
         sd = current_strain_data
         t_max_ms = float(sd[0][-1]) if (sd is not None and len(sd[0]) > 0) else None
@@ -612,13 +614,14 @@ def on_message(ws_app, msg):
             print(f"[Jump] Time jumped {time_delta:+.0f} ms — clearing pause markers")
             root.after(0, graph.clear_all_pause_markers)
 
-        elif new_time == prev_ws_time and not at_end:
-            if not _paused:
+        elif new_time == prev_ws_time:
+            # paused only once the time has held still for PAUSE_DETECT_S.
+            if not _paused and not at_end and now - _time_changed_at >= PAUSE_DETECT_S:
                 _paused = True
                 _pause_time_ms = new_time
                 _frozen_interp_ms = float(new_time)
                 print(f"[Pause] Detected at {new_time} ms")
-                root.after(0, lambda t=new_time, m=new_mod: graph.add_pause_marker(t, m))
+                root.after(0, lambda t=new_time, r=new_rate: graph.add_pause_marker(t, r))
 
         else:
             if _paused:
@@ -637,7 +640,7 @@ def on_message(ws_app, msg):
 
 def on_close(ws_app, close_status_code, close_msg):
     global connection_phase, last_state, _paused
-    print(f"[WS] Disconnected from tosu (code={close_status_code}).")
+    print(f"[Source] Disconnected from {source_name}.")
     last_state = None
     _paused = False
     connection_phase = "connecting"
@@ -649,27 +652,21 @@ def on_error(ws_app, error):
     print(f"[WS] Error: {error}")
 
 
-def read_mods(d):
-    return (
-        d.get("gameplay", {}).get("mods", {}).get("str")
-        or d.get("menu", {}).get("mods", {}).get("str")
-        or ""
-    )
-
-
-def get_rate_mod(m):
-    if "DT" in m or "NC" in m:
-        return "DT"
-    if "HT" in m:
-        return "HT"
-    return "NM"
+def read_rate(d):
+    """Get the clock rate of the current mods, including lazer's custom speeds."""
+    try:
+        rate = float(d.get("play", {}).get("mods", {}).get("rate") or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+    # lazer stores rates as floats (1.2 reads as 1.2000000477).
+    return round(rate, 3) if rate > 0 else 1.0
 
 
 # --- Calculation loop ---
 
 def calculation_loop():
     global last_state, loading, loading_step
-    global current_strain_data, current_msd_data
+    global current_strain_data, current_skillset_data
     global _last_dan_label, _last_dan_numeric
 
     while True:
@@ -678,9 +675,9 @@ def calculation_loop():
             continue
 
         with lock:
-            state = (current_map, current_mod)
+            state = (current_map, current_rate, ln_enabled)
 
-        mp, mod = state
+        mp, rate, ln = state
 
         if not mp or not os.path.exists(mp):
             time.sleep(0.1)
@@ -700,37 +697,26 @@ def calculation_loop():
             if _p.get_parsed_data()[0] != 4:
                 raise ValueError(f"Not a 4k map (keycount={_p.get_parsed_data()[0]})")
 
-            SR, times, strain, factors = algorithm.calculate(mp, mod)
+            rating, times, strain, details = algorithm.calculate(mp, rate, ln)
 
             t_arr = np.asarray(times, dtype=float)
             d_arr = np.asarray(strain, dtype=float)
             current_strain_data = (t_arr, d_arr)
 
-            try:
-                hitobjects = msd_converter.parse_hitobjects(mp, mod)
-                etterna_rows = msd_converter.osu_to_etterna_rows(hitobjects)
-                msd_result = msd_converter.calculate_msd(etterna_rows)
-                print("\n[MSD Skillsets]")
-                for k, v in msd_result.items():
-                    print(f"{k:<10}: {v:.2f}")
-            except Exception as msd_e:
-                print(f"[MSD] Error calculating MSD, skipping: {msd_e}")
-                msd_result = None
-
             with lock:
-                current_msd_data = msd_result
+                current_skillset_data = (details["rating_raw"], details["skillsets_raw"])
 
-            averages = algorithm.factor_averages(times, factors)
-            dan_label, dan_numeric = get_dan_from_diff(SR)
+            dan_label, dan_numeric = get_dan_from_diff(rating)
 
             _last_dan_label = dan_label
             _last_dan_numeric = dan_numeric
 
-            print(f"\n[Map Factors] {os.path.basename(mp)} [{mod}]")
-            for k, v in averages.items():
-                print(f"{k:<6}: {v:.4f}")
-            print(f"SR    : {SR:.4f}★")
-            print(f"Dan   : {dan_label} ({dan_numeric})\n")
+            print(f"\n[XDC1 Skillsets] {os.path.basename(mp)} [{rate:g}x] [LN {'on' if ln else 'off'}]")
+            for k, v in details["skillsets"].items():
+                print(f"{k:<10}: {v:.2f}")
+            print(f"Rating    : {rating:.4f}")
+            print(f"Rice      : {details['rice']:.4f}")
+            print(f"Dan       : {dan_label} ({dan_numeric})\n")
 
             loading = False
             last_state = state
@@ -748,7 +734,7 @@ def calculation_loop():
             _last_dan_label = "Invalid Beatmap"
             _last_dan_numeric = ""
             with lock:
-                current_msd_data = None
+                current_skillset_data = None
                 current_strain_data = None
             root.after(0, _clear_invalid_ui)
             set_dan_text("Invalid Beatmap", "")
@@ -781,7 +767,13 @@ def get_dan_from_diff(diff):
     for i, dan in enumerate(ORDER):
         lower, upper = _DAN_BOUNDARIES[i]
         if lower <= diff < upper:
-            t = max(0.0, min((diff - lower) / (upper - lower), 1.0))
+            # half a tier either side of its mean, so the mean is always Mid.
+            mean = DAN_MEANS[dan]
+            if diff < mean:
+                t = 0.5 * (diff - lower) / (mean - lower)
+            else:
+                t = 0.5 + 0.5 * (diff - mean) / (upper - mean)
+            t = max(0.0, min(t, 1.0))
             numeric = round(DAN_ORDER_START + i + t, 2)
             if t < 1 / 3:
                 label = f"{dan} Low"
@@ -794,28 +786,81 @@ def get_dan_from_diff(diff):
     return "? ? ? ? ?", "N/A"
 
 
+# --- Data sources ---
+
+def _tosu_running():
+    # 127.0.0.1, not localhost: Windows tries ::1 first and each refused try costs time.
+    try:
+        with socket.create_connection(("127.0.0.1", TOSU_PORT), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+_tosu_up = threading.Event()
+
+
+def _tosu_watcher():
+    """Check for tosu off the reading thread, as a refused connect blocks on Windows."""
+    while True:
+        if _tosu_running():
+            _tosu_up.set()
+        else:
+            _tosu_up.clear()
+        time.sleep(TOSU_RECHECK_S)
+
+
+def _run_tosu():
+    print("[WS] Connecting to tosu...")
+    ws = websocket.WebSocketApp(
+        TOSU_WS,
+        on_open=on_open,
+        on_message=on_message,
+        on_close=on_close,
+        on_error=on_error,
+    )
+    ws.run_forever()
+
+
+def _run_native(reader):
+    """Read osu! until it closes or tosu starts."""
+    on_open(None, "osu!")
+    while True:
+        d = reader.read()
+        if d is None:
+            print("[osu!] osu! closed.")
+            break
+        handle_state(d)
+        if _tosu_up.is_set():
+            print("[osu!] tosu started, switching to it.")
+            reader.detach()
+            break
+        time.sleep(NATIVE_POLL_S)
+    on_close(None, None, None)
+
+
+def _source_loop():
+    """Use tosu when it is running, otherwise read osu! stable's memory directly."""
+    global connection_phase
+    reader = osu_memory.StableReader() if osu_memory.AVAILABLE else None
+    _tosu_up.wait(timeout=1.0)  # let the watcher's first check land
+    while True:
+        if _tosu_up.is_set():
+            _run_tosu()
+            _tosu_up.clear()  # the watcher sets it again if tosu is still there
+        elif reader is not None and reader.attach():
+            _run_native(reader)
+            continue
+        if connection_phase != "connecting":
+            connection_phase = "connecting"
+            root.after(0, _clear_normal_ui)
+            root.after(0, _draw_connection_screen)
+        time.sleep(OSU_RECHECK_S)
+
+
 # --- Boot ---
 
 root.after(100, _draw_connection_screen)
-
-
-def _ws_loop():
-    global connection_phase
-    while True:
-        print("[WS] Attempting to connect to tosu...")
-        ws = websocket.WebSocketApp(
-            TOSU_WS,
-            on_open=on_open,
-            on_message=on_message,
-            on_close=on_close,
-            on_error=on_error,
-        )
-        ws.run_forever()
-        if connection_phase == "ready":
-            connection_phase = "connecting"
-            root.after(0, _draw_connection_screen)
-        print("[WS] Retrying in 3 seconds...")
-        time.sleep(3)
 
 
 def _message_timeout_watcher():
@@ -834,7 +879,8 @@ def _message_timeout_watcher():
 
 
 threading.Thread(target=calculation_loop, daemon=True).start()
-threading.Thread(target=_ws_loop, daemon=True).start()
+threading.Thread(target=_tosu_watcher, daemon=True).start()
+threading.Thread(target=_source_loop, daemon=True).start()
 threading.Thread(target=_message_timeout_watcher, daemon=True).start()
 
 root.after(16, _tick)

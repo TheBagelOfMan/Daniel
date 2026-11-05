@@ -17,3 +17,6 @@ build/
 .DS_Store
 Thumbs.db
 /.venv-linux-build
+/.venv-windows-build
+/src/xdc1.exe
+/src/xdc1

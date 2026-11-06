@@ -84,6 +84,13 @@ PREFIX_Y_OFFSET = 4.1
 SKILLSET_RELEVANCE_FRACTION = 0.20
 
 DAN_COLORS = {
+    "4th":     "#FFFFFF",
+    "5th":     "#FFFFFF",
+    "6th":     "#FFFFFF",
+    "7th":     "#FFFFFF",
+    "8th":     "#FFFFFF",
+    "9th":     "#FFFFFF",
+    "10th":    "#FFFFFF",
     "Alpha":   "#ff5a5a",
     "Beta":    "#ffd84d",
     "Gamma":   "#00ffd5",
@@ -96,20 +103,28 @@ DAN_COLORS = {
     "Kappa":   "#FFFFFF",
 }
 
+# mean XDC1 rating of each dan's Dan ~ REFORM ~ songs (skillset map packs, Finalmaps, FINAL Ext).
 DAN_MEANS = {
-    "Alpha":   11.0,
-    "Beta":    12.0,
-    "Gamma":   13.0,
-    "Delta":   14.0,
-    "Epsilon": 15.0,
-    "Zeta":    16.0,
-    "Eta":     17.0,
-    "Theta":   18.0,
-    "Iota":    18.99,   # mean of the four Dan ~ REFORM ~ FINAL-IOTA maps
-    "Kappa":   19.60,   # mean of the four Dan ~ REFORM ~ FINAL-KAPPA maps
+    "4th":     3.74,
+    "5th":     5.62,
+    "6th":     6.54,
+    "7th":     7.44,
+    "8th":     9.00,
+    "9th":     9.45,
+    "10th":    10.30,
+    "Alpha":   11.28,
+    "Beta":    12.04,
+    "Gamma":   13.11,
+    "Delta":   13.97,
+    "Epsilon": 15.12,
+    "Zeta":    15.71,
+    "Eta":     16.98,
+    "Theta":   18.21,
+    "Iota":    19.00,
+    "Kappa":   19.60,
 }
 ORDER = list(DAN_MEANS.keys())
-DAN_ORDER_START = 11
+DAN_ORDER_START = 4
 
 
 # --- State ---

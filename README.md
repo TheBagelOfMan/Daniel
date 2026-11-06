@@ -6,11 +6,11 @@ A real-time rice difficulty calculator for 4k osu!mania which runs on its own wi
 
 ## Requirements
 Windows 10/11. osu!stable works on its own. osu!lazer needs tosu running.
-Steps: download Daniel-v2.0.exe, run it next to osu!, select a map.
+Steps: download Daniel-v2.1.exe, run it next to osu!, select a map.
 
 ## Usage
 Tab cycles through 3 views (compact, statistics, graph) and L toggles LN on or off.
-Dans run from Alpha to Kappa with tiers of Low, Mid and High. Red lines on the graph are pauses.
+Dans run from 4th to Kappa with tiers of Low, Mid and High. Red lines on the graph are pauses.
 DT, HT, and lazer custom rates are all supported.
 
 ## How it works

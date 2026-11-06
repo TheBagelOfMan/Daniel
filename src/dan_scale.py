@@ -1,4 +1,4 @@
-"""Convert XDC1's points to dans (Alpha = 11 through Theta = 18)."""
+"""Convert XDC1's points to dans (4th = 4 through Theta = 18)."""
 
 import math
 
